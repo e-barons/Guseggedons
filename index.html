@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guseggedons</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #0d0b10;
+            background-image: url('resources/background.png');
+            background-position: center -50px;
+            background-repeat: no-repeat;
+            background-size: 19%;
+            font-family: Arial, sans-serif;
+        }
+
+        #gameContainer {
+            width: 50%;
+            max-width: 800px;
+            background: #fff;
+            border: 4px solid #333;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            cursor: crosshair;
+            background: #f0f0f0;
+        }
+
+        #endScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            z-index: 10;
+        }
+
+        #endScreen.show {
+            display: flex;
+        }
+
+        #endScreen h1 {
+            font-size: 3em;
+            margin-bottom: 20px;
+            color: #ff6b6b;
+        }
+
+        #endScreen h2 {
+            font-size: 2em;
+            margin-bottom: 30px;
+        }
+
+        #endScreen button {
+            padding: 15px 30px;
+            font-size: 1.2em;
+            background: #4ecdc4;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        #endScreen button:hover {
+            background: #45b8b0;
+        }
+
+        #score {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #333;
+            z-index: 5;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <div id="score">Score: 0</div>
+        <canvas id="gameCanvas"><img src="resources/cat_food.png" alt="cat food" id="cat_food"></canvas>
+        <div id="endScreen">
+            <h1>Game Over!</h1>
+            <h2>Final Score: <span id="finalScore">0</span></h2>
+            <button onclick="restartGame()">Play Again</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+        const endScreen = document.getElementById('endScreen');
+        const finalScoreElement = document.getElementById('finalScore');
+
+        // Set canvas size
+        function resizeCanvas() {
+            const container = document.getElementById('gameContainer');
+            canvas.width = container.offsetWidth;
+            canvas.height = container.offsetWidth * 0.75; // 3:4 aspect ratio
+        }
+
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // Load shape image
+        const shapeImage = new Image();
+        shapeImage.src = 'resources/gusis.png';
+        const catFoodImage = new Image();
+        catFoodImage.src = 'resources/cat_food.png';
+        let imageLoaded = false;
+        const MAX_IMAGE_SIZE = 140; // Maximum size for width or height in pixels
+        shapeImage.onload = function() {
+            imageLoaded = true;
+            // Calculate scaled dimensions to fit within max size while maintaining aspect ratio
+            let width = shapeImage.width;
+            let height = shapeImage.height;
+            const maxDimension = Math.max(width, height);
+            
+            if (maxDimension > MAX_IMAGE_SIZE) {
+                const scale = MAX_IMAGE_SIZE / maxDimension;
+                width = width * scale;
+                height = height * scale;
+            }
+            
+            // Set shape dimensions (scaled if needed)
+            gameState.shape.width = width;
+            gameState.shape.height = height;
+        };
+
+        // Default physics values
+        const DEFAULT_GRAVITY = 0.08;
+        const DEFAULT_BOUNCE_POWER = 6;
+
+        // Game state
+        let gameState = {
+            running: true,
+            score: 0,
+            difficultyIncreased: false, // Track if difficulty has been increased
+            shape: {
+                x: 0,
+                y: 0,
+                width: 60, // default, will be updated when image loads
+                height: 60, // default, will be updated when image loads
+                velocityX: 0,
+                velocityY: 0,
+                rotation: 0, // rotation angle in radians
+                gravity: DEFAULT_GRAVITY,
+                bouncePower: DEFAULT_BOUNCE_POWER
+            },
+            mouse: {
+                x: 0,
+                y: 0,
+                radius: 30 // collision radius around cursor
+            }
+        };
+
+        // Initialize shape position
+        function initShape() {
+            gameState.shape.x = canvas.width / 2;
+            gameState.shape.y = 50;
+            gameState.shape.velocityX = 0;
+            gameState.shape.velocityY = 0;
+            gameState.shape.rotation = 0;
+            // Update dimensions if image is loaded (with scaling)
+            if (imageLoaded) {
+                let width = shapeImage.width;
+                let height = shapeImage.height;
+                const maxDimension = Math.max(width, height);
+                
+                if (maxDimension > MAX_IMAGE_SIZE) {
+                    const scale = MAX_IMAGE_SIZE / maxDimension;
+                    width = width * scale;
+                    height = height * scale;
+                }
+                
+                gameState.shape.width = width;
+                gameState.shape.height = height;
+            }
+        }
+
+        initShape();
+
+        // Function to set gravity and bounce power
+        function setPhysics(gravity, bouncePower) {
+            gameState.shape.gravity = gravity;
+            gameState.shape.bouncePower = bouncePower;
+        }
+
+        // Update mouse position
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            gameState.mouse.x = e.clientX - rect.left;
+            gameState.mouse.y = e.clientY - rect.top;
+        });
+
+        // Check collision between shape (oval) and mouse cursor
+        function checkCollision() {
+            const shape = gameState.shape;
+            const mouse = gameState.mouse;
+            
+            // Calculate relative position from shape center to mouse
+            const dx = mouse.x - shape.x;
+            const dy = mouse.y - shape.y;
+            
+            // Oval collision detection
+            // a and b are the semi-major and semi-minor axes of the oval
+            // Adding mouse radius to make collision area slightly larger
+            const a = (shape.width / 2) + mouse.radius;
+            const b = (shape.height / 2) + mouse.radius;
+            
+            // Check if mouse point is inside or on the oval
+            // Formula: (dx/a)^2 + (dy/b)^2 <= 1
+            const ellipseCheck = (dx * dx) / (a * a) + (dy * dy) / (b * b);
+            
+            if (ellipseCheck <= 1) {
+                // Generate random angle between -60 and 60 degrees (from vertical upward)
+                // This ensures the bounce is always upward (not more than 180 degrees below horizontal)
+                const angleRange = 60; // degrees
+                const randomAngle = (Math.random() * angleRange * 2 - angleRange) * (Math.PI / 180);
+                
+                // Calculate velocity components
+                // Negative Y because upward is negative in canvas coordinates
+                const speed = gameState.shape.bouncePower;
+                shape.velocityY = -Math.cos(randomAngle) * speed;
+                shape.velocityX = Math.sin(randomAngle) * speed;
+                
+                // Rotate the shape (add random rotation between -180 and 180 degrees)
+                shape.rotation += (Math.random() * 360 - 180) * (Math.PI / 180);
+                
+                // Increment score
+                gameState.score++;
+                scoreElement.textContent = `Score: ${gameState.score}`;
+                
+                // Increase difficulty when score exceeds 100 (only once)
+                if (gameState.score > 100 && !gameState.difficultyIncreased) {
+                    gameState.difficultyIncreased = true;
+                    setPhysics(DEFAULT_GRAVITY * 2, DEFAULT_BOUNCE_POWER * 2);
+                }
+            }
+        }
+
+        // Update game logic
+        function update() {
+            if (!gameState.running) return;
+
+            const shape = gameState.shape;
+
+            // Apply gravity
+            shape.velocityY += shape.gravity;
+
+            // Update position
+            shape.x += shape.velocityX;
+            shape.y += shape.velocityY;
+
+            // Bounce off horizontal walls
+            if (shape.x < shape.width / 2) {
+                shape.x = shape.width / 2;
+                shape.velocityX *= -0.8; // Reverse and dampen horizontal velocity
+            } else if (shape.x > canvas.width - shape.width / 2) {
+                shape.x = canvas.width - shape.width / 2;
+                shape.velocityX *= -0.8; // Reverse and dampen horizontal velocity
+            }
+
+            // Apply slight friction to horizontal movement
+            shape.velocityX *= 0.99;
+
+            // Check collision with mouse
+            checkCollision();
+
+            // Check if shape hit the bottom
+            if (shape.y > canvas.height - shape.height / 2) {
+                endGame();
+            }
+        }
+
+        // Draw game
+        function draw() {
+            // Clear canvas
+            ctx.fillStyle = '#f0f0f0';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw bottom line
+            ctx.strokeStyle = '#ff6b6b';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(0, canvas.height);
+            ctx.lineTo(canvas.width, canvas.height);
+            ctx.stroke();
+
+            // Draw cat food image at bottom center, sized to 10% of canvas height
+            if (catFoodImage.complete && catFoodImage.naturalWidth > 0) {
+                const catFoodHeight = canvas.height * 0.1; // 10% of canvas height
+                const aspectRatio = catFoodImage.width / catFoodImage.height;
+                const catFoodWidth = catFoodHeight * aspectRatio;
+                const catFoodX = (canvas.width - catFoodWidth) / 2; // Center horizontally
+                const catFoodY = canvas.height - catFoodHeight; // Position at bottom
+                
+                ctx.drawImage(
+                    catFoodImage,
+                    catFoodX,
+                    catFoodY,
+                    catFoodWidth,
+                    catFoodHeight
+                );
+            }
+
+            // Draw shape image with rotation
+            if (imageLoaded) {
+                ctx.save(); // Save the current canvas state
+                // Translate to the center of the shape
+                ctx.translate(gameState.shape.x, gameState.shape.y);
+                // Rotate around the center
+                ctx.rotate(gameState.shape.rotation);
+                // Draw the image centered at the origin (which is now at the shape's center)
+                ctx.drawImage(
+                    shapeImage,
+                    -gameState.shape.width / 2,
+                    -gameState.shape.height / 2,
+                    gameState.shape.width,
+                    gameState.shape.height
+                );
+                ctx.restore(); // Restore the canvas state
+            } else {
+                // Fallback rectangle while image loads (with rotation)
+                ctx.save();
+                ctx.translate(gameState.shape.x, gameState.shape.y);
+                ctx.rotate(gameState.shape.rotation);
+                ctx.fillStyle = '#4ecdc4';
+                ctx.fillRect(
+                    -gameState.shape.width / 2,
+                    -gameState.shape.height / 2,
+                    gameState.shape.width,
+                    gameState.shape.height
+                );
+                ctx.restore();
+            }
+
+            // Draw mouse cursor indicator (optional visual feedback)
+            ctx.fillStyle = 'rgba(255, 107, 107, 0.3)';
+            ctx.beginPath();
+            ctx.arc(gameState.mouse.x, gameState.mouse.y, gameState.mouse.radius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // End game
+        function endGame() {
+            gameState.running = false;
+            finalScoreElement.textContent = gameState.score;
+            endScreen.classList.add('show');
+        }
+
+        // Restart game
+        function restartGame() {
+            gameState.running = true;
+            gameState.score = 0;
+            gameState.difficultyIncreased = false;
+            scoreElement.textContent = 'Score: 0';
+            endScreen.classList.remove('show');
+            // Reset physics to default values
+            setPhysics(DEFAULT_GRAVITY, DEFAULT_BOUNCE_POWER);
+            initShape();
+        }
+
+        // Game loop
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Start game
+        gameLoop();
+    </script>
+</body>
+</html>
